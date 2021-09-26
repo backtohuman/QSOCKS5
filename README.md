@@ -1,4 +1,4 @@
 # QSOCKS5
-socks5 server
+socks5 server by qt
 
 ![](img.png)
