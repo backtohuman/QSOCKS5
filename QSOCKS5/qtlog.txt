@@ -1,0 +1,5 @@
+Debug: authentication method: 0
+Debug: authentication method: 0
+Debug: authentication method: 2
+Debug: authentication method: 2
+Debug: onError QAbstractSocket::RemoteHostClosedError
