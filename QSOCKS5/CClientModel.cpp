@@ -85,13 +85,8 @@ void CClientModel::removeClient(QSharedPointer<CClientSocket> client)
 	if (row == -1)
 		return;
 
-	// ���f������f�[�^���폜����O�ɌĂяo���B
 	this->beginRemoveRows(QModelIndex(), row, row);
-
-	// ���ۂ̃f�[�^����폜
 	this->m_items.removeAt(row);
-
-	// ���f������f�[�^���폜������ɌĂяo���B
 	this->endRemoveRows();
 }
 

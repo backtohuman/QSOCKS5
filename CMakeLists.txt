@@ -19,7 +19,13 @@ find_package(Qt5 COMPONENTS Core Widgets Network REQUIRED)
 file(GLOB_RECURSE SOURCE_FILES ${PROJECT_SOURCE_DIR}/QSOCKS5/*.cpp)
 set(RESOURCE_FILES ${PROJECT_SOURCE_DIR}/QSOCKS5/qsocks5.qrc)
 
-add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${RESOURCE_FILES})
+if (WIN32)
+    add_executable(${PROJECT_NAME} WIN32 ${SOURCE_FILES} ${RESOURCE_FILES})
+elseif(APPLE)
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCE_FILES} ${RESOURCE_FILES})
+else()
+    add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${RESOURCE_FILES})
+endif()
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/QSOCKS5/stdafx.h)
 
@@ -29,6 +35,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Widgets Qt5::Networ
 if (APPLE)
     set_property(TARGET ${PROJECT_NAME} PROPERTY MACOSX_BUNDLE TRUE)
 endif()
+
+install(TARGETS ${PROJECT_NAME})
 
 #
 # test
