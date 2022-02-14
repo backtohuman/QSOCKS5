@@ -27,7 +27,7 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/QSOCKS5/
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Widgets Qt5::Network)
 
 if (APPLE)
-    #set_property(TARGET ${PROJECT_NAME} PROPERTY MACOSX_BUNDLE TRUE)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY MACOSX_BUNDLE TRUE)
 endif()
 
 #
