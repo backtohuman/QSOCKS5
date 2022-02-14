@@ -31,7 +31,11 @@ private slots:
 	void onClientContextMenu(const QPoint &pos);
 	void onRuleSetContextMenu(const QPoint &pos);
 
+	// server
+	void onAcceptError(QAbstractSocket::SocketError socketError);
 	void onNewConnection();
+
+	// client
 	void onDisconnected();
 	void onError(QAbstractSocket::SocketError);
 	void onClientUpdated();

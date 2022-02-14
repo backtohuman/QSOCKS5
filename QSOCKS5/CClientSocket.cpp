@@ -8,30 +8,26 @@
 CClientSocket::CClientSocket(QTcpSocket *socket, QObject *parent) : QObject(parent)
 {
 	this->m_socket = socket;
-	this->m_destSocket = new QTcpSocket;
+	this->m_destSocket = new QTcpSocket(this);
 	this->m_authMethodEvaluated = false;
 	this->m_authDone = false;
 	this->m_commandDone = false;
 	this->m_command = 0;
 	this->m_addressType = 0;
+	this->m_dstPort = 0;
 	this->m_incoming = 0;
 	this->m_outgoing = 0;
 
 	QObject::connect(socket, &QTcpSocket::readyRead, this, &CClientSocket::onReadyRead);
 	QObject::connect(this->m_destSocket, &QTcpSocket::connected, this, &CClientSocket::onConnected);
-	QObject::connect(this->m_destSocket, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error), this, &CClientSocket::onError);
+	QObject::connect(this->m_destSocket, &QAbstractSocket::errorOccurred, this, &CClientSocket::onError);
 	QObject::connect(this->m_destSocket, &QTcpSocket::readyRead, this, &CClientSocket::readFromDest);
 	QObject::connect(this->m_destSocket, &QTcpSocket::disconnected, this, &CClientSocket::onDisconnected);
 }
 
 CClientSocket::~CClientSocket()
 {
-	this->m_socket->disconnect();
-	this->m_socket->abort();
-
-	this->m_destSocket->disconnect();
-	this->m_destSocket->abort();
-	this->m_destSocket->deleteLater();
+	this->m_socket->deleteLater();
 }
 
 QString CClientSocket::getIP() const
@@ -67,6 +63,11 @@ uint64_t CClientSocket::getOutPackets() const
 QString CClientSocket::getLastStatus() const
 {
 	return QString();
+}
+
+void CClientSocket::terminate()
+{
+	this->m_destSocket->disconnectFromHost();
 }
 
 void CClientSocket::failure(uint8_t reply)
@@ -132,12 +133,9 @@ void CClientSocket::onAuthenticationMethod()
 	for (uint8_t i = 0; i < nmethods; i++)
 	{
 		stream >> method;
-
-		qDebug() << "authentication method:" << method;
-
 		if (g_mainWindow->containsMethod(this->m_socket->peerAddress(), method))
 		{
-			qDebug() << "authentication method:" << method;
+			qInfo() << "authentication method:" << method << "succeeded.";
 			foundMethod = true;
 			break;
 		}
@@ -145,7 +143,7 @@ void CClientSocket::onAuthenticationMethod()
 
 	if (!foundMethod)
 	{
-		qDebug() << "authentication method not found";
+		qWarning() << "authentication method not supported";
 		method = SOCKS5_NO_ACCEPTABLE_METHODS;
 	}
 
@@ -154,7 +152,7 @@ void CClientSocket::onAuthenticationMethod()
 	writer << ver;
 	writer << method;
 	this->m_socket->write(response);
-	
+
 	this->m_authMethodEvaluated = true;
 	if (method == SOCKS5_NO_AUTHENTICATION_REQUIRED)
 		this->m_authDone = true;
@@ -225,6 +223,12 @@ void CClientSocket::onUsernamePasswordAuth()
 
 void CClientSocket::onCommand()
 {
+	if (this->m_dstPort != 0)
+	{
+		// ドメイン解決してるか、接続試してる
+		return;
+	}
+
 	int read = 0;
 	QDataStream stream(&this->m_recvedBuf, QIODevice::ReadOnly);
 	if (this->m_recvedBuf.size() < 4) // ver/cmd/rsv/atyp
@@ -251,79 +255,91 @@ void CClientSocket::onCommand()
 
 	switch (atyp)
 	{
-		case SOCKS5_ADDR_TYPE_IPV4:
+	case SOCKS5_ADDR_TYPE_IPV4:
+	{
+		if (this->m_recvedBuf.size() < 10)
 		{
-			if (this->m_recvedBuf.size() < 10)
-			{
-				// Need more data
-				return;
-			}
-
-			uint32_t dst_addr;
-			uint16_t dst_port;
-
-			stream >> dst_addr;
-			stream >> dst_port;
-
-			this->m_dstHost = QHostAddress(dst_addr);
-			this->m_dstPort = dst_port;
-			read = 10;
-			break;
-		}
-		case SOCKS5_ADDR_TYPE_DOMAIN_NAME:
-		{
-			uint8_t length;
-			uint16_t dst_port;
-
-			stream >> length;
-
-			char domainName[256];
-			stream.readRawData(domainName, length);
-			domainName[length] = 0;
-
-			stream >> dst_port;
-			this->m_dstPort = dst_port;
-
-			QHostInfo::lookupHost(domainName, this, SLOT(onLookupHost(QHostInfo)));
-			this->m_recvedBuf.remove(0, 4 + 1 + 2 + length);
-
-			// Do not continue
+			// Need more data
 			return;
 		}
-		case SOCKS5_ADDR_TYPE_IPV6:
+
+		uint32_t dst_addr;
+		uint16_t dst_port;
+
+		stream >> dst_addr;
+		stream >> dst_port;
+
+		this->m_dstHost = QHostAddress(dst_addr);
+		this->m_dstPort = dst_port;
+		read = 10;
+		break;
+	}
+	case SOCKS5_ADDR_TYPE_DOMAIN_NAME:
+	{
+		// resolve domain name
+		uint8_t length;
+		uint16_t dst_port;
+
+		if (this->m_recvedBuf.size() < (4 + 1))
 		{
-			this->failure(SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED);
-			break;
+			// Need more data
+			return;
 		}
-		default:
+		stream >> length;
+		if (this->m_recvedBuf.size() < (4 + 1 + length + 2))
 		{
-			this->failure(SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED);
-			break;
+			// Need more data
+			return;
 		}
+
+		char domainName[256];
+		stream.readRawData(domainName, length);
+		domainName[length] = 0;
+
+		stream >> dst_port;
+		this->m_dstPort = dst_port;
+
+		qDebug() << "lookupHost" << domainName;
+		QHostInfo::lookupHost(domainName, this, SLOT(onLookupHost(QHostInfo)));
+		this->m_recvedBuf.remove(0, 4 + 1 + 2 + length);
+
+		// Do not continue
+		return;
+	}
+	case SOCKS5_ADDR_TYPE_IPV6:
+	{
+		this->failure(SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED);
+		break;
+	}
+	default:
+	{
+		this->failure(SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED);
+		break;
+	}
 	}
 
 	switch (cmd)
 	{
-		case SOCKS5_CMD_CONNECT:
-		{
-			this->m_destSocket->connectToHost(this->m_dstHost, this->m_dstPort);
-			break;
-		}
-		case SOCKS5_CMD_BIND:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
-		case SOCKS5_CMD_UDP_ASSOCIATE:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
-		default:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
+	case SOCKS5_CMD_CONNECT:
+	{
+		this->m_destSocket->connectToHost(this->m_dstHost, this->m_dstPort);
+		break;
+	}
+	case SOCKS5_CMD_BIND:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
+	case SOCKS5_CMD_UDP_ASSOCIATE:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
+	default:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
 	}
 
 	this->m_recvedBuf.remove(0, read);
@@ -335,17 +351,23 @@ void CClientSocket::doWork()
 {
 	switch (this->m_command)
 	{
-		case SOCKS5_CMD_CONNECT:
+	case SOCKS5_CMD_CONNECT:
+	{
+		qint64 sent = this->m_destSocket->write(this->m_recvedBuf);
+		if (sent == -1)
 		{
-			qint64 sent = this->m_destSocket->write(this->m_recvedBuf);
-			this->m_recvedBuf.remove(0, sent);
-			this->m_outgoing += sent;
-			break;
+			qDebug() << "write error" << this->m_destSocket->errorString();
+			this->m_destSocket->disconnectFromHost();
+			return;
 		}
-		case SOCKS5_CMD_BIND:
-		case SOCKS5_CMD_UDP_ASSOCIATE:
-		default:
-			break;
+		this->m_recvedBuf.remove(0, sent);
+		this->m_outgoing += sent;
+		break;
+	}
+	case SOCKS5_CMD_BIND:
+	case SOCKS5_CMD_UDP_ASSOCIATE:
+	default:
+		break;
 	}
 }
 
@@ -409,29 +431,31 @@ void CClientSocket::onError(QAbstractSocket::SocketError socketError)
 	qDebug() << "onError" << socketError;
 
 	if (this->m_commandDone)
+	{
 		return;
+	}
 
 	uint8_t rep;
 	switch (socketError)
 	{
-		case QAbstractSocket::ConnectionRefusedError:
-			rep = SOCKS5_REPLY_CONNECTION_REFUSED;
-			break;
-		case QAbstractSocket::RemoteHostClosedError:
-			rep = SOCKS5_REPLY_CONNECTION_REFUSED;
-			break;
-		case QAbstractSocket::HostNotFoundError:
-			rep = SOCKS5_REPLY_HOST_UNREACHABLE;
-			break;
-		case QAbstractSocket::SocketTimeoutError:
-			rep = SOCKS5_REPLY_TTL_EXPIRED;
-			break;
-		case QAbstractSocket::NetworkError:
-			rep = SOCKS5_REPLY_NETWORK_UNREACHABLE;
-			break;
-		default:
-			rep = SOCKS5_REPLY_GENERAL_FAILURE;
-			break;
+	case QAbstractSocket::ConnectionRefusedError:
+		rep = SOCKS5_REPLY_CONNECTION_REFUSED;
+		break;
+	case QAbstractSocket::RemoteHostClosedError:
+		rep = SOCKS5_REPLY_CONNECTION_REFUSED;
+		break;
+	case QAbstractSocket::HostNotFoundError:
+		rep = SOCKS5_REPLY_HOST_UNREACHABLE;
+		break;
+	case QAbstractSocket::SocketTimeoutError:
+		rep = SOCKS5_REPLY_TTL_EXPIRED;
+		break;
+	case QAbstractSocket::NetworkError:
+		rep = SOCKS5_REPLY_NETWORK_UNREACHABLE;
+		break;
+	default:
+		rep = SOCKS5_REPLY_GENERAL_FAILURE;
+		break;
 	}
 
 	this->failure(rep);
@@ -448,8 +472,10 @@ void CClientSocket::readFromDest()
 void CClientSocket::onDisconnected()
 {
 	if (this->m_commandDone)
+	{
+		this->m_socket->disconnectFromHost();
 		return;
-
+	}
 	this->failure(SOCKS5_REPLY_GENERAL_FAILURE);
 }
 
@@ -457,11 +483,12 @@ void CClientSocket::onLookupHost(const QHostInfo &host)
 {
 	if (host.error() != QHostInfo::NoError)
 	{
+		qDebug() << "hostLookup failed with error:" << host.error();
 		this->failure(SOCKS5_REPLY_HOST_UNREACHABLE);
 		return;
 	}
 
-	const auto addresses = host.addresses();
+	const QList<QHostAddress> addresses = host.addresses();
 	if (addresses.empty())
 	{
 		this->failure(SOCKS5_REPLY_HOST_UNREACHABLE);
@@ -469,27 +496,29 @@ void CClientSocket::onLookupHost(const QHostInfo &host)
 	}
 
 	this->m_dstHost = addresses[0];
+	qDebug() << "hostLookup OK" << host.hostName() << this->m_dstHost;
+
 	switch (this->m_command)
 	{
-		case SOCKS5_CMD_CONNECT:
-		{
-			this->m_destSocket->connectToHost(this->m_dstHost, this->m_dstPort);
-			break;
-		}
-		case SOCKS5_CMD_BIND:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
-		case SOCKS5_CMD_UDP_ASSOCIATE:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
-		default:
-		{
-			this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
-			break;
-		}
+	case SOCKS5_CMD_CONNECT:
+	{
+		this->m_destSocket->connectToHost(this->m_dstHost, this->m_dstPort);
+		break;
+	}
+	case SOCKS5_CMD_BIND:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
+	case SOCKS5_CMD_UDP_ASSOCIATE:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
+	default:
+	{
+		this->failure(SOCKS5_REPLY_COMMAND_NOT_SUPPORTED);
+		break;
+	}
 	}
 }

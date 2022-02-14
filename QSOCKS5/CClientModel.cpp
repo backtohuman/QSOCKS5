@@ -70,7 +70,7 @@ Qt::ItemFlags CClientModel::flags(const QModelIndex &index) const
 	return flags;
 }
 
-void CClientModel::appendClient(QSharedPointer<CClientSocket> &client)
+void CClientModel::appendClient(QSharedPointer<CClientSocket> client)
 {
 	this->beginInsertRows(QModelIndex(), this->m_items.size(), this->m_items.size());
 
@@ -79,17 +79,19 @@ void CClientModel::appendClient(QSharedPointer<CClientSocket> &client)
 	this->endInsertRows();
 }
 
-void CClientModel::removeClient(QSharedPointer<CClientSocket> &client)
+void CClientModel::removeClient(QSharedPointer<CClientSocket> client)
 {
 	int row = this->m_items.indexOf(client);
+	if (row == -1)
+		return;
 
-	// ƒ‚ƒfƒ‹‚©‚çƒf[ƒ^‚ðíœ‚·‚é‘O‚ÉŒÄ‚Ño‚·B
+	// ï¿½ï¿½ï¿½fï¿½ï¿½ï¿½ï¿½ï¿½ï¿½fï¿½[ï¿½^ï¿½ï¿½ï¿½íœï¿½ï¿½ï¿½ï¿½Oï¿½ÉŒÄ‚Ñoï¿½ï¿½ï¿½B
 	this->beginRemoveRows(QModelIndex(), row, row);
 
-	// ŽÀÛ‚Ìƒf[ƒ^‚©‚çíœ
+	// ï¿½ï¿½ï¿½Û‚Ìƒfï¿½[ï¿½^ï¿½ï¿½ï¿½ï¿½íœ
 	this->m_items.removeAt(row);
 
-	// ƒ‚ƒfƒ‹‚©‚çƒf[ƒ^‚ðíœ‚µ‚½Œã‚ÉŒÄ‚Ño‚·B
+	// ï¿½ï¿½ï¿½fï¿½ï¿½ï¿½ï¿½ï¿½ï¿½fï¿½[ï¿½^ï¿½ï¿½ï¿½íœï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉŒÄ‚Ñoï¿½ï¿½ï¿½B
 	this->endRemoveRows();
 }
 

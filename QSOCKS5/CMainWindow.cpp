@@ -10,6 +10,7 @@
 CMainWindow::CMainWindow(QWidget *parent) : QMainWindow(parent)
 {
 	this->m_tcpServer = new QTcpServer;
+	QObject::connect(this->m_tcpServer, &QTcpServer::acceptError, this, &CMainWindow::onAcceptError);
 	QObject::connect(this->m_tcpServer, &QTcpServer::newConnection, this, &CMainWindow::onNewConnection);
 
 	// Client View
@@ -69,7 +70,6 @@ CMainWindow::CMainWindow(QWidget *parent) : QMainWindow(parent)
 
 	this->loadSettings();
 }
-
 CMainWindow::~CMainWindow()
 {
 	this->m_tcpServer->disconnect();
@@ -130,7 +130,7 @@ void CMainWindow::onStart()
 void CMainWindow::onStop()
 {
 	this->m_tcpServer->close();
-	foreach(auto socket, this->m_sockets)
+	foreach (auto socket, this->m_sockets)
 		socket->disconnectFromHost();
 
 	this->m_startButton->setEnabled(true);
@@ -187,7 +187,7 @@ void CMainWindow::onRuleSetContextMenu(const QPoint &pos)
 {
 	const QModelIndex index = this->m_ruleView->indexAt(pos);
 	bool valid = index.isValid();
-	
+
 	this->m_ruleNewAct->setEnabled(true);
 	this->m_ruleEditAct->setEnabled(valid);
 	this->m_ruleDeleteAct->setEnabled(valid);
@@ -199,6 +199,11 @@ void CMainWindow::onRuleSetContextMenu(const QPoint &pos)
 	menu.exec(this->m_ruleView->viewport()->mapToGlobal(pos));
 }
 
+void CMainWindow::onAcceptError(QAbstractSocket::SocketError socketError)
+{
+	qWarning() << "acceptError" << socketError;
+}
+
 void CMainWindow::onNewConnection()
 {
 	QTcpSocket *socket = this->m_tcpServer->nextPendingConnection();
@@ -208,12 +213,12 @@ void CMainWindow::onNewConnection()
 		return;
 	}
 
-	auto client = QSharedPointer<CClientSocket>::create(socket);
+	auto client = QSharedPointer<CClientSocket>(new CClientSocket(socket), &QObject::deleteLater);
 	this->m_sockets.push_back(socket);
 	this->m_clients.insert(socket, client);
 
 	QObject::connect(socket, &QTcpSocket::disconnected, this, &CMainWindow::onDisconnected);
-	QObject::connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error), this, &CMainWindow::onError);
+	QObject::connect(socket, &QAbstractSocket::errorOccurred, this, &CMainWindow::onError);
 	QObject::connect(client.data(), &CClientSocket::updated, this, &CMainWindow::onClientUpdated);
 
 	// Show on view
@@ -226,11 +231,8 @@ void CMainWindow::onDisconnected()
 	QTcpSocket *socket = static_cast<QTcpSocket *>(sender());
 	this->m_sockets.removeOne(socket);
 
-	// Disconnects signal in object sender from method in object receiver.
-	socket->disconnect();
-
-	// Warning: If you need to delete the sender() of this signal in a slot connected to it, use the deleteLater() function.
-	socket->deleteLater();
+	// DO NOT TOUCH socket
+	// socket->deleteLater();
 
 	// Remove from view
 	auto it = this->m_clients.find(socket);
@@ -238,6 +240,7 @@ void CMainWindow::onDisconnected()
 		return;
 
 	auto client = it.value();
+	client->terminate();
 	this->m_clients.erase(it);
 	this->m_clientModel->removeClient(client);
 	this->statusBar()->showMessage(tr("Total client: %1").arg(this->m_sockets.size()));
@@ -268,7 +271,7 @@ void CMainWindow::loadSettings()
 	this->m_clientView->horizontalHeader()->restoreState(settings.value("view1").toByteArray());
 	this->m_ruleView->horizontalHeader()->restoreState(settings.value("view2").toByteArray());
 
-	int size = settings.beginReadArray("rules");
+	const int size = settings.beginReadArray("rules");
 	for (int i = 0; i < size; i++)
 	{
 		settings.setArrayIndex(i);
@@ -290,7 +293,7 @@ void CMainWindow::saveSettings()
 	settings.beginWriteArray("rules");
 	for (int row = 0; row < this->m_ruleModel->rowCount(); row++)
 	{
-		auto ruleSet = this->m_ruleModel->get(row);
+		const auto ruleSet = this->m_ruleModel->get(row);
 		settings.setArrayIndex(row);
 		settings.setValue("rule", ruleSet->saveState());
 	}

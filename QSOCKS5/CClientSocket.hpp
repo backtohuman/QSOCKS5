@@ -16,6 +16,7 @@ public:
 	uint64_t getOutPackets() const;
 	QString getLastStatus() const;
 
+	void terminate();
 	void failure(uint8_t reply);
 	void onAuthenticationMethod();
 	void onUsernamePasswordAuth();

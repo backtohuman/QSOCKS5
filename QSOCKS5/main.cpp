@@ -8,18 +8,21 @@ void MessageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
 	QString txt;
 	switch (type)
 	{
-		case QtDebugMsg:
-			txt = QString("Debug: %1").arg(msg);
-			break;
-		case QtWarningMsg:
-			txt = QString("Warning: %1").arg(msg);
-			break;
-		case QtCriticalMsg:
-			txt = QString("Critical: %1").arg(msg);
-			break;
-		case QtFatalMsg:
-			txt = QString("Fatal: %1").arg(msg);
-			break;
+	case QtDebugMsg:
+		txt = QString("Debug: %1").arg(msg);
+		break;
+	case QtWarningMsg:
+		txt = QString("Warning: %1").arg(msg);
+		break;
+	case QtCriticalMsg:
+		txt = QString("Critical: %1").arg(msg);
+		break;
+	case QtFatalMsg:
+		txt = QString("Fatal: %1").arg(msg);
+		break;
+	case QtInfoMsg:
+		txt = QString("Info: %1").arg(msg);
+		break;
 	}
 
 	QFile file("qtlog.txt");
@@ -27,7 +30,7 @@ void MessageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
 		return;
 
 	QTextStream stream(&file);
-	stream << txt << endl;
+	stream << txt << Qt::endl;
 }
 
 int main(int argc, char *argv[])

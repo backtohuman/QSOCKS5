@@ -16,8 +16,8 @@ public:
 	QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
 	Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
 
-	void appendClient(QSharedPointer<CClientSocket> &client);
-	void removeClient(QSharedPointer<CClientSocket> &client);
+	void appendClient(QSharedPointer<CClientSocket> client);
+	void removeClient(QSharedPointer<CClientSocket> client);
 	void updateClient(CClientSocket *client);
 
 private:
